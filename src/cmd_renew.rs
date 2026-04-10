@@ -6,8 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{ensure, Result};
 use log::{error, info, warn};
 
+use crate::config::{DEFAULT_PORT, DEPLOY_HOOKS, LETSENCRYPT_LIVE, RENEW_THRESHOLD_DAYS};
 use crate::fetcher::fetch_cert_chain;
-use crate::{write_cert_files, DEFAULT_PORT, DEPLOY_HOOKS, LETSENCRYPT_LIVE, RENEW_THRESHOLD_DAYS};
+use crate::write_cert_files;
 
 fn cert_not_after(path: &Path) -> Result<i64> {
     let data = fs::read(path)?;

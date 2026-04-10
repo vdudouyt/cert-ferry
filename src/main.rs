@@ -1,6 +1,7 @@
 mod cmd_fetch;
 mod cmd_install;
 mod cmd_renew;
+mod config;
 mod fetcher;
 
 use std::path::Path;
@@ -9,12 +10,8 @@ use std::process;
 use anyhow::{ensure, Result};
 use log::{error, info};
 
+use config::{DEFAULT_PORT, LETSENCRYPT_LIVE};
 use fetcher::der_to_pem;
-
-pub(crate) const LETSENCRYPT_LIVE: &str = "/etc/letsencrypt/live";
-pub(crate) const DEPLOY_HOOKS: &str = "/etc/letsencrypt/renewal-hooks/deploy";
-pub(crate) const RENEW_THRESHOLD_DAYS: i64 = 29;
-pub(crate) const DEFAULT_PORT: u16 = 443;
 
 fn parse_host_port(arg: &str) -> (&str, u16) {
     let s = arg.strip_prefix("https://").unwrap_or(arg).trim_end_matches('/');
