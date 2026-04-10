@@ -12,6 +12,7 @@ use log::{error, info, warn};
 use fetcher::{der_to_pem, fetch_cert_chain};
 
 const LETSENCRYPT_LIVE: &str = "/etc/letsencrypt/live";
+const DEPLOY_HOOKS: &str = "/etc/letsencrypt/renewal-hooks/deploy";
 const RENEW_THRESHOLD_DAYS: i64 = 29;
 const DEFAULT_PORT: u16 = 443;
 
@@ -80,6 +81,34 @@ fn try_renew(domain: &str, now: i64, threshold: i64) -> Result<bool> {
     Ok(true)
 }
 
+fn run_deploy_hooks(domain: &str) {
+    let hooks_dir = Path::new(DEPLOY_HOOKS);
+    if !hooks_dir.is_dir() {
+        return;
+    }
+
+    let lineage = Path::new(LETSENCRYPT_LIVE).join(domain);
+    let entries = match fs::read_dir(hooks_dir) {
+        Ok(e) => e,
+        Err(e) => { warn!("could not read {}: {}", DEPLOY_HOOKS, e); return; }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        info!("running deploy hook: {}", path.display());
+        let result = Command::new(&path)
+            .env("RENEWED_LINEAGE", &lineage)
+            .env("RENEWED_DOMAINS", domain)
+            .status();
+        if let Err(e) = result {
+            warn!("hook {} failed: {}", path.display(), e);
+        }
+    }
+}
+
 fn cmd_renew() -> Result<()> {
     let live = Path::new(LETSENCRYPT_LIVE);
     ensure!(live.exists(), "{LETSENCRYPT_LIVE} does not exist");
@@ -88,6 +117,7 @@ fn cmd_renew() -> Result<()> {
     let threshold = now + RENEW_THRESHOLD_DAYS * 86400;
     let mut updated = 0u32;
     let mut skipped = 0u32;
+    let mut renewed_domains = Vec::new();
 
     for entry in fs::read_dir(live)? {
         let entry = entry?;
@@ -100,7 +130,16 @@ fn cmd_renew() -> Result<()> {
             error!("{}: {:#}", domain, e);
             false
         });
-        if renewed { updated += 1 } else { skipped += 1 }
+        if renewed {
+            updated += 1;
+            renewed_domains.push(domain);
+        } else {
+            skipped += 1;
+        }
+    }
+
+    for domain in &renewed_domains {
+        run_deploy_hooks(domain);
     }
 
     info!("done: {} updated, {} skipped", updated, skipped);
@@ -123,20 +162,9 @@ fn cmd_install() -> Result<()> {
     fs::write(tmr_path, timer)?;
     info!("wrote {}", tmr_path);
 
-    let ok = Command::new("systemctl")
-        .arg("daemon-reload")
-        .status()?
-        .success()
-        && Command::new("systemctl")
-            .args(["enable", "--now", "certferry-renew.timer"])
-            .status()?
-            .success();
-
-    if ok {
-        info!("certferry-renew.timer enabled and started");
-    } else {
-        error!("failed to enable timer — run manually: systemctl daemon-reload && systemctl enable --now certferry-renew.timer");
-    }
+    ensure!(Command::new("systemctl").arg("daemon-reload").status()?.success(), "systemctl daemon-reload failed");
+    ensure!(Command::new("systemctl").args(["enable", "--now", "certferry-renew.timer"]).status()?.success(), "systemctl enable failed");
+    info!("certferry-renew.timer enabled and started");
 
     Ok(())
 }
