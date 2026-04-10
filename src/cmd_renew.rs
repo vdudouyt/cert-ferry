@@ -85,10 +85,12 @@ pub fn cmd_renew(force: bool) -> Result<()> {
         }
 
         let domain = entry.file_name().to_string_lossy().into_owned();
-        if try_renew(&domain, now, threshold, force)
-            .inspect_err(|e| error!("{}: {:#}", domain, e))
-            .unwrap_or(false)
-        {
+        let Ok(renewed) = try_renew(&domain, now, threshold, force)
+            .inspect_err(|e| error!("{}: {:#}", domain, e)) else {
+            skipped += 1;
+            continue;
+        };
+        if renewed {
             updated += 1;
             renewed_domains.push(domain);
         } else {
