@@ -48,18 +48,21 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
 
+    let force = args.iter().any(|a| a == "--force");
+
     let result = match args.get(1).map(String::as_str) {
-        Some("--renew") => cmd_renew::cmd_renew(),
+        Some("--renew") => cmd_renew::cmd_renew(force),
         Some("--install") => cmd_install::cmd_install(),
-        Some(arg) => {
+        Some(arg) if arg != "--force" => {
             let (host, port) = parse_host_port(arg);
             cmd_fetch::cmd_fetch(host, port)
         }
-        None => {
+        _ => {
             eprintln!("Usage:");
-            eprintln!("  certferry <domain>      Fetch certificate from remote host");
-            eprintln!("  certferry --renew       Renew expiring local certificates");
-            eprintln!("  certferry --install     Install systemd timer for periodic renewal");
+            eprintln!("  certferry <domain>        Fetch certificate from remote host");
+            eprintln!("  certferry --renew         Renew expiring local certificates");
+            eprintln!("  certferry --renew --force  Renew all certificates unconditionally");
+            eprintln!("  certferry --install       Install systemd timer for periodic renewal");
             process::exit(1);
         }
     };
