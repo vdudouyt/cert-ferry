@@ -1,10 +1,6 @@
 # certferry
 
-Distribute Let's Encrypt wildcard certificates across servers without Ansible, puppet, or custom HTTP APIs. Just a single binary.
-
-## The problem
-
-You have a wildcard certificate for `*.yourdomain.com` issued by certbot on your main server. You have 10, 50, or 100 slave servers that need this certificate. Let's Encrypt rate limits make it impractical to issue separate certificates for each subdomain, and setting up Ansible just to copy a few files feels like overkill.
+Easy distribution of wildcard LE certificates
 
 ## How it works
 
@@ -38,15 +34,22 @@ This connects to `yourdomain.com:443`, extracts the certificate chain, and write
 - `/etc/letsencrypt/live/yourdomain.com/chain.pem` — intermediate certificates
 - `/etc/letsencrypt/live/yourdomain.com/fullchain.pem` — both combined
 
-### 3. Automatic renewal
+### 3. Renew expiring certificates
+```sh
+certferry --renew
+```
+
+On each run, it checks all certificates in `/etc/letsencrypt/live/` and fetches fresh ones for any expiring within 29 days. If the fetched certificate is identical to the existing one, no files are written and no hooks are triggered.
+
+After updating certificates, certferry runs all scripts in `/etc/letsencrypt/renewal-hooks/deploy/` with certbot-compatible environment variables (`RENEWED_LINEAGE`, `RENEWED_DOMAINS`), so your existing reload hooks (e.g. `systemctl reload nginx`) work as-is.
+
+### 4. Automatic renewal
 
 ```sh
 certferry --install
 ```
 
-Creates a systemd timer that runs `certferry --renew` twice daily (like certbot). On each run, it checks all certificates in `/etc/letsencrypt/live/` and fetches fresh ones for any expiring within 29 days. If the fetched certificate is identical to the existing one, no files are written and no hooks are triggered.
-
-After updating certificates, certferry runs all scripts in `/etc/letsencrypt/renewal-hooks/deploy/` with certbot-compatible environment variables (`RENEWED_LINEAGE`, `RENEWED_DOMAINS`), so your existing reload hooks (e.g. `systemctl reload nginx`) work as-is.
+Creates a systemd timer that runs `certferry --renew` twice daily (like certbot). 
 
 ## Usage
 
