@@ -10,3 +10,8 @@ pem = "3"
 anyhow = "1"
 logsy = "1"
 log = "0.4"
+
+[dev-dependencies]
+rcgen = "0.13"
+pem = "3"
+time = "0.3"

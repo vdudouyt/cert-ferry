@@ -7,21 +7,26 @@ mod fetcher;
 use std::path::Path;
 use std::process;
 
-use anyhow::{ensure, Result};
+use anyhow::{Result, ensure};
 use log::{error, info};
 
-use config::{DEFAULT_PORT, LETSENCRYPT_LIVE};
+use config::DEFAULT_PORT;
 use fetcher::der_to_pem;
 
-fn parse_host_port(arg: &str) -> (&str, u16) {
-    let s = arg.strip_prefix("https://").unwrap_or(arg).trim_end_matches('/');
-    s.rsplit_once(':').and_then(|(h, p)| p.parse().ok().map(|p| (h, p))).unwrap_or((s, DEFAULT_PORT))
+pub(crate) fn parse_host_port(arg: &str) -> (&str, u16) {
+    let s = arg
+        .strip_prefix("https://")
+        .unwrap_or(arg)
+        .trim_end_matches('/');
+    s.rsplit_once(':')
+        .and_then(|(h, p)| p.parse().ok().map(|p| (h, p)))
+        .unwrap_or((s, DEFAULT_PORT))
 }
 
-pub(crate) fn write_cert_files(domain: &str, certs: &[Vec<u8>]) -> Result<()> {
+pub(crate) fn write_cert_files(base_dir: &Path, domain: &str, certs: &[Vec<u8>]) -> Result<()> {
     ensure!(!certs.is_empty(), "no certificates received");
 
-    let dir = Path::new(LETSENCRYPT_LIVE).join(domain);
+    let dir = base_dir.join(domain);
     if !dir.exists() {
         std::fs::create_dir_all(&dir)?;
     }

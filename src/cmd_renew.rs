@@ -3,14 +3,14 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{ensure, Result};
+use anyhow::{Result, ensure};
 use log::{error, info, warn};
 
 use crate::config::{DEFAULT_PORT, DEPLOY_HOOKS, LETSENCRYPT_LIVE, RENEW_THRESHOLD_DAYS};
 use crate::fetcher::fetch_cert_chain;
 use crate::write_cert_files;
 
-fn cert_not_after(path: &Path) -> Result<i64> {
+pub(crate) fn cert_not_after(path: &Path) -> Result<i64> {
     let data = fs::read(path)?;
     let p = pem::parse(&data)?;
     let (_, cert) = x509_parser::parse_x509_certificate(p.contents())?;
@@ -18,8 +18,14 @@ fn cert_not_after(path: &Path) -> Result<i64> {
 }
 
 /// Try to renew a single domain. Returns Ok(true) if renewed, Ok(false) if skipped.
-fn try_renew(domain: &str, now: i64, threshold: i64, force: bool) -> Result<bool> {
-    let cert_path = Path::new(LETSENCRYPT_LIVE).join(domain).join("cert.pem");
+pub(crate) fn try_renew(
+    base_dir: &Path,
+    domain: &str,
+    now: i64,
+    threshold: i64,
+    force: bool,
+) -> Result<bool> {
+    let cert_path = base_dir.join(domain).join("cert.pem");
     if !cert_path.exists() {
         warn!("{}: no cert.pem, skipping", domain);
         return Ok(false);
@@ -36,20 +42,30 @@ fn try_renew(domain: &str, now: i64, threshold: i64, force: bool) -> Result<bool
 
     info!("{}: fetching certificate", domain);
     let certs = fetch_cert_chain(domain, DEFAULT_PORT)?;
-    write_cert_files(domain, &certs)?;
+
+    let new_pem = crate::fetcher::der_to_pem(&certs[0]);
+    let existing = fs::read_to_string(&cert_path).unwrap_or_default();
+    if new_pem == existing {
+        info!("{}: certificate unchanged, skipping", domain);
+        return Ok(false);
+    }
+
+    write_cert_files(base_dir, domain, &certs)?;
     Ok(true)
 }
 
-fn run_deploy_hooks(domain: &str) {
-    let hooks_dir = Path::new(DEPLOY_HOOKS);
+pub(crate) fn run_deploy_hooks(hooks_dir: &Path, base_dir: &Path, domain: &str) {
     if !hooks_dir.is_dir() {
         return;
     }
 
-    let lineage = Path::new(LETSENCRYPT_LIVE).join(domain);
+    let lineage = base_dir.join(domain);
     let entries = match fs::read_dir(hooks_dir) {
         Ok(e) => e,
-        Err(e) => { warn!("could not read {}: {}", DEPLOY_HOOKS, e); return; }
+        Err(e) => {
+            warn!("could not read {}: {}", hooks_dir.display(), e);
+            return;
+        }
     };
 
     for entry in entries.flatten() {
@@ -85,8 +101,9 @@ pub fn cmd_renew(force: bool) -> Result<()> {
         }
 
         let domain = entry.file_name().to_string_lossy().into_owned();
-        let Ok(renewed) = try_renew(&domain, now, threshold, force)
-            .inspect_err(|e| error!("{}: {:#}", domain, e)) else {
+        let Ok(renewed) = try_renew(live, &domain, now, threshold, force)
+            .inspect_err(|e| error!("{}: {:#}", domain, e))
+        else {
             skipped += 1;
             continue;
         };
@@ -99,7 +116,7 @@ pub fn cmd_renew(force: bool) -> Result<()> {
     }
 
     for domain in &renewed_domains {
-        run_deploy_hooks(domain);
+        run_deploy_hooks(Path::new(DEPLOY_HOOKS), live, domain);
     }
 
     info!("done: {} updated, {} skipped", updated, skipped);
