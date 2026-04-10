@@ -1,170 +1,44 @@
+mod cmd_fetch;
+mod cmd_install;
+mod cmd_renew;
 mod fetcher;
 
-use std::env;
-use std::fs;
 use std::path::Path;
-use std::process::{self, Command};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process;
 
 use anyhow::{ensure, Result};
-use log::{error, info, warn};
+use log::error;
 
-use fetcher::{der_to_pem, fetch_cert_chain};
+use fetcher::der_to_pem;
 
-const LETSENCRYPT_LIVE: &str = "/etc/letsencrypt/live";
-const DEPLOY_HOOKS: &str = "/etc/letsencrypt/renewal-hooks/deploy";
-const RENEW_THRESHOLD_DAYS: i64 = 29;
-const DEFAULT_PORT: u16 = 443;
+pub(crate) const LETSENCRYPT_LIVE: &str = "/etc/letsencrypt/live";
+pub(crate) const DEPLOY_HOOKS: &str = "/etc/letsencrypt/renewal-hooks/deploy";
+pub(crate) const RENEW_THRESHOLD_DAYS: i64 = 29;
+pub(crate) const DEFAULT_PORT: u16 = 443;
 
 fn parse_host_port(arg: &str) -> (&str, u16) {
     let s = arg.strip_prefix("https://").unwrap_or(arg).trim_end_matches('/');
     s.rsplit_once(':').and_then(|(h, p)| p.parse().ok().map(|p| (h, p))).unwrap_or((s, DEFAULT_PORT))
 }
 
-fn write_cert_files(domain: &str, certs: &[Vec<u8>]) -> Result<()> {
+pub(crate) fn write_cert_files(domain: &str, certs: &[Vec<u8>]) -> Result<()> {
     ensure!(!certs.is_empty(), "no certificates received");
 
     let dir = Path::new(LETSENCRYPT_LIVE).join(domain);
     if !dir.exists() {
-        fs::create_dir_all(&dir)?;
+        std::fs::create_dir_all(&dir)?;
     }
 
-    // cert.pem = leaf certificate
-    fs::write(dir.join("cert.pem"), der_to_pem(&certs[0]))?;
-    info!("{}/cert.pem written", dir.display());
+    std::fs::write(dir.join("cert.pem"), der_to_pem(&certs[0]))?;
+    log::info!("{}/cert.pem written", dir.display());
 
-    // chain.pem = intermediate certificates
     let chain: String = certs[1..].iter().map(|c| der_to_pem(c)).collect();
-    fs::write(dir.join("chain.pem"), &chain)?;
-    info!("{}/chain.pem written", dir.display());
+    std::fs::write(dir.join("chain.pem"), &chain)?;
+    log::info!("{}/chain.pem written", dir.display());
 
-    // fullchain.pem = leaf + intermediates
     let fullchain: String = certs.iter().map(|c| der_to_pem(c)).collect();
-    fs::write(dir.join("fullchain.pem"), &fullchain)?;
-    info!("{}/fullchain.pem written", dir.display());
-
-    Ok(())
-}
-
-fn cert_not_after(path: &Path) -> Result<i64> {
-    let data = fs::read(path)?;
-    let p = pem::parse(&data)?;
-    let (_, cert) = x509_parser::parse_x509_certificate(p.contents())?;
-    Ok(cert.validity().not_after.timestamp())
-}
-
-fn cmd_fetch(host: &str, port: u16) -> Result<()> {
-    info!("connecting to {}:{}", host, port);
-    let certs = fetch_cert_chain(host, port)?;
-    info!("received {} certificate(s)", certs.len());
-    write_cert_files(host, &certs)
-}
-
-/// Try to renew a single domain. Returns Ok(true) if renewed, Ok(false) if skipped.
-fn try_renew(domain: &str, now: i64, threshold: i64) -> Result<bool> {
-    let cert_path = Path::new(LETSENCRYPT_LIVE).join(domain).join("cert.pem");
-    if !cert_path.exists() {
-        warn!("{}: no cert.pem, skipping", domain);
-        return Ok(false);
-    }
-
-    let not_after = cert_not_after(&cert_path)?;
-    if not_after >= threshold {
-        let days = (not_after - now) / 86400;
-        info!("{}: {} days remaining, skipping", domain, days);
-        return Ok(false);
-    }
-
-    info!("{}: expiring soon, fetching new certificate", domain);
-    let certs = fetch_cert_chain(domain, DEFAULT_PORT)?;
-    write_cert_files(domain, &certs)?;
-    Ok(true)
-}
-
-fn run_deploy_hooks(domain: &str) {
-    let hooks_dir = Path::new(DEPLOY_HOOKS);
-    if !hooks_dir.is_dir() {
-        return;
-    }
-
-    let lineage = Path::new(LETSENCRYPT_LIVE).join(domain);
-    let entries = match fs::read_dir(hooks_dir) {
-        Ok(e) => e,
-        Err(e) => { warn!("could not read {}: {}", DEPLOY_HOOKS, e); return; }
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        info!("running deploy hook: {}", path.display());
-        let result = Command::new(&path)
-            .env("RENEWED_LINEAGE", &lineage)
-            .env("RENEWED_DOMAINS", domain)
-            .status();
-        if let Err(e) = result {
-            warn!("hook {} failed: {}", path.display(), e);
-        }
-    }
-}
-
-fn cmd_renew() -> Result<()> {
-    let live = Path::new(LETSENCRYPT_LIVE);
-    ensure!(live.exists(), "{LETSENCRYPT_LIVE} does not exist");
-
-    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
-    let threshold = now + RENEW_THRESHOLD_DAYS * 86400;
-    let mut updated = 0u32;
-    let mut skipped = 0u32;
-    let mut renewed_domains = Vec::new();
-
-    for entry in fs::read_dir(live)? {
-        let entry = entry?;
-        if !entry.path().is_dir() {
-            continue;
-        }
-
-        let domain = entry.file_name().to_string_lossy().into_owned();
-        let renewed = try_renew(&domain, now, threshold).unwrap_or_else(|e| {
-            error!("{}: {:#}", domain, e);
-            false
-        });
-        if renewed {
-            updated += 1;
-            renewed_domains.push(domain);
-        } else {
-            skipped += 1;
-        }
-    }
-
-    for domain in &renewed_domains {
-        run_deploy_hooks(domain);
-    }
-
-    info!("done: {} updated, {} skipped", updated, skipped);
-    Ok(())
-}
-
-fn cmd_install() -> Result<()> {
-    let exe = env::current_exe()?;
-
-    let service =
-        include_str!("certferry-renew.service").replace("%CERTFERRY_EXE%", &exe.display().to_string());
-    let timer = include_str!("certferry-renew.timer");
-
-    let svc_path = "/etc/systemd/system/certferry-renew.service";
-    let tmr_path = "/etc/systemd/system/certferry-renew.timer";
-
-    fs::write(svc_path, &service)?;
-    info!("wrote {}", svc_path);
-
-    fs::write(tmr_path, timer)?;
-    info!("wrote {}", tmr_path);
-
-    ensure!(Command::new("systemctl").arg("daemon-reload").status()?.success(), "systemctl daemon-reload failed");
-    ensure!(Command::new("systemctl").args(["enable", "--now", "certferry-renew.timer"]).status()?.success(), "systemctl enable failed");
-    info!("certferry-renew.timer enabled and started");
+    std::fs::write(dir.join("fullchain.pem"), &fullchain)?;
+    log::info!("{}/fullchain.pem written", dir.display());
 
     Ok(())
 }
@@ -172,14 +46,14 @@ fn cmd_install() -> Result<()> {
 fn main() {
     logsy::set_echo(true);
 
-    let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = std::env::args().collect();
 
     let result = match args.get(1).map(String::as_str) {
-        Some("--renew") => cmd_renew(),
-        Some("--install") => cmd_install(),
+        Some("--renew") => cmd_renew::cmd_renew(),
+        Some("--install") => cmd_install::cmd_install(),
         Some(arg) => {
             let (host, port) = parse_host_port(arg);
-            cmd_fetch(host, port)
+            cmd_fetch::cmd_fetch(host, port)
         }
         None => {
             eprintln!("Usage:");
