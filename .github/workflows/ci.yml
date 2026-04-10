@@ -1,6 +1,10 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
 
 jobs:
   test:
@@ -21,3 +25,84 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --check
+
+  release:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - name: rpm
+            image: almalinux:8
+          - name: deb
+            image: debian:11
+          - name: static
+            image: ubuntu:latest
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps (RPM)
+        if: matrix.name == 'rpm'
+        run: dnf install -y gcc make rpm-build curl
+
+      - name: Install build deps (DEB)
+        if: matrix.name == 'deb'
+        run: apt-get update && apt-get install -y gcc make curl
+
+      - name: Install build deps (static)
+        if: matrix.name == 'static'
+        run: apt-get update && apt-get install -y gcc make curl
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Build release binary
+        run: |
+          . "$HOME/.cargo/env"
+          cargo build --release
+
+      - name: Extract version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+
+      - name: Build RPM
+        if: matrix.name == 'rpm'
+        run: |
+          . "$HOME/.cargo/env"
+          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          cp target/release/certferry ~/rpmbuild/BUILD/
+          cp src/certferry-renew.service ~/rpmbuild/BUILD/
+          cp src/certferry-renew.timer ~/rpmbuild/BUILD/
+          rpmbuild -bb --define "_version $VERSION" pkg/certferry.spec
+          cp ~/rpmbuild/RPMS/x86_64/*.rpm certferry-${VERSION}.el8.x86_64.rpm
+
+      - name: Build DEB
+        if: matrix.name == 'deb'
+        run: |
+          mkdir -p staging/usr/bin staging/usr/lib/systemd/system staging/DEBIAN
+          cp target/release/certferry staging/usr/bin/
+          strip staging/usr/bin/certferry
+          sed 's|%CERTFERRY_EXE%|/usr/bin/certferry|g' src/certferry-renew.service > staging/usr/lib/systemd/system/certferry-renew.service
+          cp src/certferry-renew.timer staging/usr/lib/systemd/system/
+          sed "s/VERSION/$VERSION/" pkg/deb/DEBIAN/control > staging/DEBIAN/control
+          dpkg-deb --build staging certferry_${VERSION}_amd64.deb
+
+      - name: Build tarball
+        if: matrix.name == 'static'
+        run: |
+          strip target/release/certferry
+          tar czf certferry-${VERSION}-x86_64-linux.tar.gz -C target/release certferry
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.rpm
+            *.deb
+            *.tar.gz

@@ -1,0 +1,8 @@
+Package: certferry
+Version: VERSION
+Architecture: amd64
+Maintainer: Valentin Dudouyt
+Description: Distribute Let's Encrypt certificates across servers
+ certferry fetches TLS certificates from remote servers and writes them
+ to the standard certbot directory structure. Designed for distributing
+ wildcard certificates to multiple servers.
