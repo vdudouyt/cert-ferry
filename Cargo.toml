@@ -1,0 +1,11 @@
+[package]
+name = "certferry"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rustls = { version = "0.23", features = ["ring"] }
+x509-parser = "0.16"
+pem = "3"
+logsy = "1"
+log = "0.4"
