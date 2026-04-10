@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cargo build --all-targets
-      - run: sudo cargo test -- --test-threads=1
+      - run: sudo env "PATH=$PATH" cargo test -- --test-threads=1
       - run: cargo clippy -- -D warnings
 
   release:
