@@ -65,6 +65,27 @@ fn cmd_fetch(host: &str, port: u16) -> Result<()> {
     write_cert_files(host, &certs)
 }
 
+/// Try to renew a single domain. Returns Ok(true) if renewed, Ok(false) if skipped.
+fn try_renew(domain: &str, now: i64, threshold: i64) -> Result<bool> {
+    let cert_path = Path::new(LETSENCRYPT_LIVE).join(domain).join("cert.pem");
+    if !cert_path.exists() {
+        warn!("{}: no cert.pem, skipping", domain);
+        return Ok(false);
+    }
+
+    let not_after = cert_not_after(&cert_path)?;
+    if not_after >= threshold {
+        let days = (not_after - now) / 86400;
+        info!("{}: {} days remaining, skipping", domain, days);
+        return Ok(false);
+    }
+
+    info!("{}: expiring soon, fetching new certificate", domain);
+    let certs = fetch_cert_chain(domain, DEFAULT_PORT)?;
+    write_cert_files(domain, &certs)?;
+    Ok(true)
+}
+
 fn cmd_renew() -> Result<()> {
     let live = Path::new(LETSENCRYPT_LIVE);
     ensure!(live.exists(), "{LETSENCRYPT_LIVE} does not exist");
@@ -81,41 +102,11 @@ fn cmd_renew() -> Result<()> {
         }
 
         let domain = entry.file_name().to_string_lossy().into_owned();
-        let cert_path = entry.path().join("cert.pem");
-
-        if !cert_path.exists() {
-            warn!("{}: no cert.pem, skipping", domain);
-            skipped += 1;
-            continue;
-        }
-
-        let not_after = match cert_not_after(&cert_path) {
-            Ok(t) => t,
-            Err(e) => {
-                error!("{}: {}", domain, e);
-                skipped += 1;
-                continue;
-            }
-        };
-
-        if not_after >= threshold {
-            let days = (not_after - now) / 86400;
-            info!("{}: {} days remaining, skipping", domain, days);
-            skipped += 1;
-            continue;
-        }
-
-        info!("{}: expiring soon, fetching new certificate", domain);
-        match fetch_cert_chain(&domain, DEFAULT_PORT) {
-            Ok(certs) => {
-                write_cert_files(&domain, &certs)?;
-                updated += 1;
-            }
-            Err(e) => {
-                error!("{}: {}", domain, e);
-                skipped += 1;
-            }
-        }
+        let renewed = try_renew(&domain, now, threshold).unwrap_or_else(|e| {
+            error!("{}: {:#}", domain, e);
+            false
+        });
+        if renewed { updated += 1 } else { skipped += 1 }
     }
 
     info!("done: {} updated, {} skipped", updated, skipped);
