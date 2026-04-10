@@ -125,30 +125,9 @@ fn cmd_renew() -> Result<(), Box<dyn std::error::Error>> {
 fn cmd_install() -> Result<(), Box<dyn std::error::Error>> {
     let exe = env::current_exe()?;
 
-    let service = format!(
-        "\
-[Unit]
-Description=cert-ferry certificate renewal
-
-[Service]
-Type=oneshot
-ExecStart={} --renew
-",
-        exe.display()
-    );
-
-    let timer = "\
-[Unit]
-Description=cert-ferry renewal timer
-
-[Timer]
-OnCalendar=*-*-* 00/12:00:00
-RandomizedDelaySec=3600
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-";
+    let service =
+        include_str!("certferry-renew.service").replace("%CERTFERRY_EXE%", &exe.display().to_string());
+    let timer = include_str!("certferry-renew.timer");
 
     let svc_path = "/etc/systemd/system/certferry-renew.service";
     let tmr_path = "/etc/systemd/system/certferry-renew.timer";

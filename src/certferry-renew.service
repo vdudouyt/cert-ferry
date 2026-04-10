@@ -1,0 +1,6 @@
+[Unit]
+Description=cert-ferry certificate renewal
+
+[Service]
+Type=oneshot
+ExecStart=%CERTFERRY_EXE% --renew
