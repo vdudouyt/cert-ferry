@@ -7,5 +7,6 @@ edition = "2024"
 rustls = { version = "0.23", features = ["ring"] }
 x509-parser = "0.16"
 pem = "3"
+anyhow = "1"
 logsy = "1"
 log = "0.4"

@@ -1,6 +1,7 @@
 use std::net::TcpStream;
 use std::sync::Arc;
 
+use anyhow::{ensure, Context, Result};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, Error, SignatureScheme};
@@ -46,7 +47,7 @@ impl ServerCertVerifier for NoVerifier {
     }
 }
 
-pub fn fetch_cert_chain(host: &str, port: u16) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
+pub fn fetch_cert_chain(host: &str, port: u16) -> Result<Vec<Vec<u8>>> {
     let provider = rustls::crypto::ring::default_provider();
     let config = ClientConfig::builder_with_provider(Arc::new(provider))
         .with_safe_default_protocol_versions()?
@@ -54,21 +55,18 @@ pub fn fetch_cert_chain(host: &str, port: u16) -> Result<Vec<Vec<u8>>, Box<dyn s
         .with_custom_certificate_verifier(Arc::new(NoVerifier))
         .with_no_client_auth();
 
-    let server_name =
-        ServerName::try_from(host.to_string()).map_err(|_| "invalid server name")?;
+    let server_name = ServerName::try_from(host.to_string())
+        .context("invalid server name")?;
     let mut conn = ClientConnection::new(Arc::new(config), server_name)?;
-    let mut sock = TcpStream::connect((host, port))?;
+    let mut sock = TcpStream::connect((host, port))
+        .with_context(|| format!("failed to connect to {}:{}", host, port))?;
 
     conn.complete_io(&mut sock)?;
 
-    let certs = conn
-        .peer_certificates()
-        .ok_or("no peer certificates received")?
-        .iter()
-        .map(|c| c.as_ref().to_vec())
-        .collect();
+    let certs = conn.peer_certificates().context("no peer certificates received")?;
+    ensure!(!certs.is_empty(), "empty certificate chain");
 
-    Ok(certs)
+    Ok(certs.iter().map(|c| c.as_ref().to_vec()).collect())
 }
 
 pub fn der_to_pem(der: &[u8]) -> String {

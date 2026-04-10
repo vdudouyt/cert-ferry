@@ -6,6 +6,7 @@ use std::path::Path;
 use std::process::{self, Command};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use anyhow::{ensure, Result};
 use log::{error, info, warn};
 
 use fetcher::{der_to_pem, fetch_cert_chain};
@@ -25,10 +26,8 @@ fn parse_host_port(arg: &str) -> (&str, u16) {
     (s, DEFAULT_PORT)
 }
 
-fn write_cert_files(domain: &str, certs: &[Vec<u8>]) -> Result<(), Box<dyn std::error::Error>> {
-    if certs.is_empty() {
-        return Err("no certificates received".into());
-    }
+fn write_cert_files(domain: &str, certs: &[Vec<u8>]) -> Result<()> {
+    ensure!(!certs.is_empty(), "no certificates received");
 
     let dir = Path::new(LETSENCRYPT_LIVE).join(domain);
     if !dir.exists() {
@@ -52,25 +51,23 @@ fn write_cert_files(domain: &str, certs: &[Vec<u8>]) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-fn cert_not_after(path: &Path) -> Result<i64, Box<dyn std::error::Error>> {
+fn cert_not_after(path: &Path) -> Result<i64> {
     let data = fs::read(path)?;
     let p = pem::parse(&data)?;
     let (_, cert) = x509_parser::parse_x509_certificate(p.contents())?;
     Ok(cert.validity().not_after.timestamp())
 }
 
-fn cmd_fetch(host: &str, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_fetch(host: &str, port: u16) -> Result<()> {
     info!("connecting to {}:{}", host, port);
     let certs = fetch_cert_chain(host, port)?;
     info!("received {} certificate(s)", certs.len());
     write_cert_files(host, &certs)
 }
 
-fn cmd_renew() -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_renew() -> Result<()> {
     let live = Path::new(LETSENCRYPT_LIVE);
-    if !live.exists() {
-        return Err(format!("{LETSENCRYPT_LIVE} does not exist").into());
-    }
+    ensure!(live.exists(), "{LETSENCRYPT_LIVE} does not exist");
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
     let threshold = now + RENEW_THRESHOLD_DAYS * 86400;
@@ -92,24 +89,27 @@ fn cmd_renew() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        match cert_not_after(&cert_path) {
-            Ok(not_after) if not_after < threshold => {
-                info!("{}: expiring soon, fetching new certificate", domain);
-                match fetch_cert_chain(&domain, DEFAULT_PORT) {
-                    Ok(certs) => {
-                        write_cert_files(&domain, &certs)?;
-                        updated += 1;
-                    }
-                    Err(e) => {
-                        error!("{}: {}", domain, e);
-                        skipped += 1;
-                    }
-                }
-            }
-            Ok(not_after) => {
-                let days = (not_after - now) / 86400;
-                info!("{}: {} days remaining, skipping", domain, days);
+        let not_after = match cert_not_after(&cert_path) {
+            Ok(t) => t,
+            Err(e) => {
+                error!("{}: {}", domain, e);
                 skipped += 1;
+                continue;
+            }
+        };
+
+        if not_after >= threshold {
+            let days = (not_after - now) / 86400;
+            info!("{}: {} days remaining, skipping", domain, days);
+            skipped += 1;
+            continue;
+        }
+
+        info!("{}: expiring soon, fetching new certificate", domain);
+        match fetch_cert_chain(&domain, DEFAULT_PORT) {
+            Ok(certs) => {
+                write_cert_files(&domain, &certs)?;
+                updated += 1;
             }
             Err(e) => {
                 error!("{}: {}", domain, e);
@@ -122,7 +122,7 @@ fn cmd_renew() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn cmd_install() -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_install() -> Result<()> {
     let exe = env::current_exe()?;
 
     let service =
@@ -178,7 +178,7 @@ fn main() {
     };
 
     if let Err(e) = result {
-        error!("{}", e);
+        error!("{:#}", e);
         process::exit(1);
     }
 }
