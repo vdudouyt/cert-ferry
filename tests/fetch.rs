@@ -1,6 +1,9 @@
 use std::fs;
+use std::net::TcpListener;
 use std::path::Path;
 use std::process::Command;
+use std::sync::Arc;
+use std::thread;
 
 const LIVE_DIR: &str = "/etc/letsencrypt/live";
 
@@ -190,4 +193,65 @@ fn fetch_with_explicit_port() {
     assert!(Path::new(LIVE_DIR).join("google.com/cert.pem").exists());
 
     cleanup("google.com");
+}
+
+/// Spawn a TLS server on 127.0.0.1 that presents a cert for the given DNS name(s),
+/// handling a single handshake then closing. Returns the bound port.
+fn spawn_tls_server(dns_names: Vec<&str>) -> u16 {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let names: Vec<String> = dns_names.into_iter().map(String::from).collect();
+    let cert = rcgen::generate_simple_self_signed(names).unwrap();
+    let cert_der = cert.cert.der().to_vec();
+    let key_der = cert.key_pair.serialize_der();
+
+    let server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![rustls::pki_types::CertificateDer::from(cert_der)],
+            rustls::pki_types::PrivatePkcs8KeyDer::from(key_der).into(),
+        )
+        .unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let config = Arc::new(server_config);
+
+    thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut conn = rustls::ServerConnection::new(config).unwrap();
+            let _ = conn.complete_io(&mut stream);
+        }
+    });
+
+    port
+}
+
+#[test]
+fn mismatched_domain_fails() {
+    // Server presents a cert for notyou.local, but we connect with 127.0.0.1
+    let port = spawn_tls_server(vec!["notyou.local"]);
+
+    let out = certferry()
+        .arg(format!("127.0.0.1:{port}"))
+        .output()
+        .unwrap();
+
+    assert!(
+        !out.status.success(),
+        "should fail: cert does not cover 127.0.0.1"
+    );
+
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        combined.contains("does not match"),
+        "expected 'does not match' in output, got: {combined}"
+    );
+
+    // No files should have been written
+    assert!(!Path::new(LIVE_DIR).join("127.0.0.1/cert.pem").exists());
 }
