@@ -16,14 +16,8 @@ const RENEW_THRESHOLD_DAYS: i64 = 29;
 const DEFAULT_PORT: u16 = 443;
 
 fn parse_host_port(arg: &str) -> (&str, u16) {
-    let s = arg.strip_prefix("https://").unwrap_or(arg);
-    let s = s.trim_end_matches('/');
-    if let Some((host, port_str)) = s.rsplit_once(':') {
-        if let Ok(port) = port_str.parse::<u16>() {
-            return (host, port);
-        }
-    }
-    (s, DEFAULT_PORT)
+    let s = arg.strip_prefix("https://").unwrap_or(arg).trim_end_matches('/');
+    s.rsplit_once(':').and_then(|(h, p)| p.parse().ok().map(|p| (h, p))).unwrap_or((s, DEFAULT_PORT))
 }
 
 fn write_cert_files(domain: &str, certs: &[Vec<u8>]) -> Result<()> {
