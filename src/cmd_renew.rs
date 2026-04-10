@@ -7,7 +7,7 @@ use anyhow::{Result, ensure};
 use log::{error, info, warn};
 
 use crate::config::{DEFAULT_PORT, DEPLOY_HOOKS, LETSENCRYPT_LIVE, RENEW_THRESHOLD_DAYS};
-use crate::fetcher::fetch_cert_chain;
+use crate::fetcher::{fetch_cert_chain, verify_cert_matches_domain};
 use crate::write_cert_files;
 
 pub(crate) fn cert_not_after(path: &Path) -> Result<i64> {
@@ -42,6 +42,7 @@ pub(crate) fn try_renew(
 
     info!("{}: fetching certificate", domain);
     let certs = fetch_cert_chain(domain, DEFAULT_PORT)?;
+    verify_cert_matches_domain(&certs[0], domain)?;
 
     let new_pem = crate::fetcher::der_to_pem(&certs[0]);
     let existing = fs::read_to_string(&cert_path).unwrap_or_default();
