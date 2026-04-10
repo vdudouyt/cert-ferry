@@ -45,23 +45,23 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
 
-    let force = args.iter().any(|a| a == "--force");
+    let has = |flag: &str| args.iter().any(|a| a == flag);
+    let domain = args.iter().skip(1).find(|a| !a.starts_with("--"));
 
-    let result = match args.get(1).map(String::as_str) {
-        Some("--renew") => cmd_renew::cmd_renew(force),
-        Some("--install") => cmd_install::cmd_install(),
-        Some(arg) if arg != "--force" => {
-            let (host, port) = parse_host_port(arg);
-            cmd_fetch::cmd_fetch(host, port)
-        }
-        _ => {
-            eprintln!("Usage:");
-            eprintln!("  certferry <domain>        Fetch certificate from remote host");
-            eprintln!("  certferry --renew         Renew expiring local certificates");
-            eprintln!("  certferry --renew --force  Renew all certificates unconditionally");
-            eprintln!("  certferry --install       Install systemd timer for periodic renewal");
-            process::exit(1);
-        }
+    let result = if has("--renew") {
+        cmd_renew::cmd_renew(has("--force"))
+    } else if has("--install") {
+        cmd_install::cmd_install()
+    } else if let Some(arg) = domain {
+        let (host, port) = parse_host_port(arg);
+        cmd_fetch::cmd_fetch(host, port)
+    } else {
+        eprintln!("Usage:");
+        eprintln!("  certferry <domain>        Fetch certificate from remote host");
+        eprintln!("  certferry --renew         Renew expiring local certificates");
+        eprintln!("  certferry --renew --force  Renew all certificates unconditionally");
+        eprintln!("  certferry --install       Install systemd timer for periodic renewal");
+        process::exit(1);
     };
 
     if let Err(e) = result {
