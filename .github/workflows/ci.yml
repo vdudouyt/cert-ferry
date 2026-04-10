@@ -85,7 +85,7 @@ jobs:
     permissions:
       contents: write
     container:
-      image: ubuntu:latest
+      image: debian:11
     steps:
       - uses: actions/checkout@v4
       - run: apt-get update && apt-get install -y gcc make curl
