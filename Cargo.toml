@@ -2,6 +2,7 @@
 name = "certferry"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 rustls = { version = "0.23", features = ["ring"] }
