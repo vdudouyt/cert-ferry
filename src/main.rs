@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process;
 
 use anyhow::{ensure, Result};
-use log::error;
+use log::{error, info};
 
 use fetcher::der_to_pem;
 
@@ -30,15 +30,15 @@ pub(crate) fn write_cert_files(domain: &str, certs: &[Vec<u8>]) -> Result<()> {
     }
 
     std::fs::write(dir.join("cert.pem"), der_to_pem(&certs[0]))?;
-    log::info!("{}/cert.pem written", dir.display());
+    info!("{}/cert.pem written", dir.display());
 
     let chain: String = certs[1..].iter().map(|c| der_to_pem(c)).collect();
     std::fs::write(dir.join("chain.pem"), &chain)?;
-    log::info!("{}/chain.pem written", dir.display());
+    info!("{}/chain.pem written", dir.display());
 
     let fullchain: String = certs.iter().map(|c| der_to_pem(c)).collect();
     std::fs::write(dir.join("fullchain.pem"), &fullchain)?;
-    log::info!("{}/fullchain.pem written", dir.display());
+    info!("{}/fullchain.pem written", dir.display());
 
     Ok(())
 }
