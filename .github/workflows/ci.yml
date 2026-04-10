@@ -12,7 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cargo build --all-targets
-      - run: sudo env "PATH=$PATH" cargo test -- --test-threads=1
+      - run: sudo mkdir -p /etc/letsencrypt/live /etc/letsencrypt/renewal-hooks/deploy
+      - run: sudo chmod -R 777 /etc/letsencrypt
+      - run: cargo test -- --test-threads=1
       - run: cargo clippy -- -D warnings
 
   release:
