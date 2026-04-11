@@ -137,25 +137,6 @@ fn fetch_basic() {
 }
 
 #[test]
-fn fetch_with_https_prefix() {
-    setup();
-    cleanup("localhost");
-    shared_server();
-    plant_localhost_key();
-
-    let out = certferry().arg("https://localhost").output().unwrap();
-    assert!(
-        out.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-
-    assert!(Path::new(LIVE_DIR).join("localhost/cert.pem").exists());
-
-    cleanup("localhost");
-}
-
-#[test]
 fn fetch_with_explicit_port() {
     setup();
     cleanup("localhost");

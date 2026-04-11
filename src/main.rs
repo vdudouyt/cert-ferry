@@ -14,13 +14,9 @@ use config::DEFAULT_PORT;
 use fetcher::der_to_pem;
 
 pub(crate) fn parse_host_port(arg: &str) -> (&str, u16) {
-    let s = arg
-        .strip_prefix("https://")
-        .unwrap_or(arg)
-        .trim_end_matches('/');
-    s.rsplit_once(':')
+    arg.rsplit_once(':')
         .and_then(|(h, p)| p.parse().ok().map(|p| (h, p)))
-        .unwrap_or((s, DEFAULT_PORT))
+        .unwrap_or((arg, DEFAULT_PORT))
 }
 
 pub(crate) fn write_cert_files(base_dir: &Path, domain: &str, certs: &[Vec<u8>]) -> Result<()> {
