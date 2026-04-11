@@ -10,14 +10,7 @@ use std::process;
 use anyhow::{Result, ensure};
 use log::{error, info};
 
-use config::DEFAULT_PORT;
 use fetcher::der_to_pem;
-
-pub(crate) fn parse_host_port(arg: &str) -> (&str, u16) {
-    arg.rsplit_once(':')
-        .and_then(|(h, p)| p.parse().ok().map(|p| (h, p)))
-        .unwrap_or((arg, DEFAULT_PORT))
-}
 
 pub(crate) fn write_cert_files(base_dir: &Path, domain: &str, certs: &[Vec<u8>]) -> Result<()> {
     ensure!(!certs.is_empty(), "no certificates received");
@@ -54,8 +47,7 @@ fn main() {
     } else if has("--install") {
         cmd_install::cmd_install()
     } else if let Some(arg) = domain {
-        let (host, port) = parse_host_port(arg);
-        cmd_fetch::cmd_fetch(host, port)
+        cmd_fetch::cmd_fetch(arg)
     } else {
         eprintln!("Usage:");
         eprintln!("  certferry <domain>        Fetch certificate from remote host");

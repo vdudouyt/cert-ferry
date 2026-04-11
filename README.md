@@ -55,7 +55,6 @@ Creates a systemd timer that runs `certferry --renew` twice daily (like certbot)
 
 ```
 certferry <domain>          # fetch certificate from domain:443
-certferry <domain>:8443     # custom port
 
 certferry --renew           # renew expiring certificates (29-day threshold)
 certferry --renew --force   # renew all certificates unconditionally

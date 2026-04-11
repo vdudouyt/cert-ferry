@@ -137,25 +137,6 @@ fn fetch_basic() {
 }
 
 #[test]
-fn fetch_with_explicit_port() {
-    setup();
-    cleanup("localhost");
-    shared_server();
-    plant_localhost_key();
-
-    let out = certferry().arg("localhost:443").output().unwrap();
-    assert!(
-        out.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-
-    assert!(Path::new(LIVE_DIR).join("localhost/cert.pem").exists());
-
-    cleanup("localhost");
-}
-
-#[test]
 fn cert_pem_is_valid_pem() {
     setup();
     cleanup("localhost");
@@ -283,7 +264,7 @@ fn mismatched_domain_fails() {
     cleanup("127.0.0.1");
     shared_server();
 
-    let out = certferry().arg("127.0.0.1:443").output().unwrap();
+    let out = certferry().arg("127.0.0.1").output().unwrap();
     assert!(!out.status.success());
 
     let combined = format!(
