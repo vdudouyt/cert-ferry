@@ -1,9 +1,13 @@
 use std::net::TcpStream;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, ensure};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::pki_types::{
+    CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
+    ServerName, UnixTime,
+};
 use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, Error, SignatureScheme};
 
 // Accept any certificate — we only want the public cert chain, not authentication.
@@ -81,5 +85,26 @@ pub fn verify_cert_matches_domain(der: &[u8], domain: &str) -> Result<()> {
     let server_name = ServerName::try_from(domain.to_string()).context("invalid domain name")?;
     rustls::client::verify_server_name(&parsed, &server_name)
         .with_context(|| format!("certificate does not match '{domain}'"))?;
+    Ok(())
+}
+
+/// Check that the certificate's public key corresponds to the private key at `key_path`.
+pub fn verify_cert_matches_private_key(cert_der: &[u8], key_path: &Path) -> Result<()> {
+    let key_pem =
+        std::fs::read(key_path).with_context(|| format!("reading {}", key_path.display()))?;
+    let parsed = pem::parse(&key_pem).context("parsing private key PEM")?;
+    let der = parsed.contents().to_vec();
+
+    let key: PrivateKeyDer<'static> = match parsed.tag() {
+        "PRIVATE KEY" => PrivatePkcs8KeyDer::from(der).into(),
+        "RSA PRIVATE KEY" => PrivatePkcs1KeyDer::from(der).into(),
+        "EC PRIVATE KEY" => PrivateSec1KeyDer::from(der).into(),
+        other => anyhow::bail!("unsupported private key PEM tag: {other}"),
+    };
+
+    let cert = CertificateDer::from(cert_der.to_vec());
+    let provider = rustls::crypto::ring::default_provider();
+    rustls::sign::CertifiedKey::from_der(vec![cert], key, &provider)
+        .context("private key does not match certificate")?;
     Ok(())
 }
