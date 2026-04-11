@@ -1,12 +1,13 @@
 use std::path::Path;
 
 use anyhow::Result;
-use log::info;
+use log::{info, warn};
 
 use crate::config::{DEFAULT_PORT, LETSENCRYPT_LIVE};
 use crate::fetcher::{
     fetch_cert_chain, verify_cert_matches_domain, verify_cert_matches_private_key,
 };
+use crate::install::install_timer;
 use crate::write_cert_files;
 
 pub fn cmd_fetch(host: &str) -> Result<()> {
@@ -18,5 +19,11 @@ pub fn cmd_fetch(host: &str) -> Result<()> {
     let base = Path::new(LETSENCRYPT_LIVE);
     verify_cert_matches_private_key(&certs[0], &base.join(host).join("privkey.pem"))?;
 
-    write_cert_files(base, host, &certs)
+    write_cert_files(base, host, &certs)?;
+
+    match install_timer() {
+        Ok(()) => info!("systemd renewal timer installed"),
+        Err(e) => warn!("failed to install systemd timer: {e:#}"),
+    }
+    Ok(())
 }

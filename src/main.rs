@@ -1,8 +1,8 @@
 mod cmd_fetch;
-mod cmd_install;
 mod cmd_renew;
 mod config;
 mod fetcher;
+mod install;
 
 use std::path::Path;
 use std::process;
@@ -45,8 +45,6 @@ fn main() {
 
     let result = if has("--renew") {
         cmd_renew::cmd_renew(has("--force"))
-    } else if has("--install") {
-        cmd_install::cmd_install()
     } else if let Some(arg) = domain {
         cmd_fetch::cmd_fetch(arg)
     } else {
@@ -54,7 +52,6 @@ fn main() {
         eprintln!("  certferry <domain>        Fetch certificate from remote host");
         eprintln!("  certferry --renew         Renew expiring local certificates");
         eprintln!("  certferry --renew --force  Renew all certificates unconditionally");
-        eprintln!("  certferry --install       Install systemd timer for periodic renewal");
         process::exit(1);
     };
 

@@ -5,7 +5,7 @@ use std::process::Command;
 use anyhow::{Result, ensure};
 use log::info;
 
-pub fn cmd_install() -> Result<()> {
+pub fn install_timer() -> Result<()> {
     let exe = env::current_exe()?;
 
     let service = include_str!("certferry-renew.service")
