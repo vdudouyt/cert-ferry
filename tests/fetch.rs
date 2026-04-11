@@ -99,42 +99,6 @@ fn plant_localhost_key() {
     fs::write(dir.join("privkey.pem"), &shared_server().leaf_key_pem).unwrap();
 }
 
-// ---- dedicated server (random port) for specific tests ----
-
-struct DedicatedServer {
-    port: u16,
-}
-
-fn spawn_dedicated_server(dns_names: Vec<&str>) -> DedicatedServer {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-
-    let names: Vec<String> = dns_names.into_iter().map(String::from).collect();
-    let cert = rcgen::generate_simple_self_signed(names).unwrap();
-    let cert_der = cert.cert.der().to_vec();
-    let key_der = cert.key_pair.serialize_der();
-
-    let config = rustls::ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(
-            vec![rustls::pki_types::CertificateDer::from(cert_der)],
-            rustls::pki_types::PrivatePkcs8KeyDer::from(key_der).into(),
-        )
-        .unwrap();
-
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let config = Arc::new(config);
-
-    thread::spawn(move || {
-        while let Ok((mut stream, _)) = listener.accept() {
-            let mut conn = rustls::ServerConnection::new(config.clone()).unwrap();
-            let _ = conn.complete_io(&mut stream);
-        }
-    });
-
-    DedicatedServer { port }
-}
-
 // ---- test cert generation for renew tests ----
 
 fn make_cert_pem(days_until_expiry: i64) -> String {
@@ -333,14 +297,12 @@ fn overwrites_existing_cert_files() {
 
 #[test]
 fn mismatched_domain_fails() {
-    // Server presents cert for "notyou.local", we connect via 127.0.0.1.
-    let server = spawn_dedicated_server(vec!["notyou.local"]);
+    // Shared server's cert has SAN "localhost", connecting via 127.0.0.1 mismatches.
+    setup();
+    cleanup("127.0.0.1");
+    shared_server();
 
-    let out = certferry()
-        .arg(format!("127.0.0.1:{}", server.port))
-        .output()
-        .unwrap();
-
+    let out = certferry().arg("127.0.0.1:443").output().unwrap();
     assert!(!out.status.success());
 
     let combined = format!(
