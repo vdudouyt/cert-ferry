@@ -59,19 +59,19 @@ pub(crate) fn try_renew(
 }
 
 pub(crate) fn run_deploy_hooks(hooks_dir: &Path, base_dir: &Path, domain: &str) {
-    if !hooks_dir.is_dir() {
-        return;
-    }
-
-    let lineage = base_dir.join(domain);
     let entries = match fs::read_dir(hooks_dir) {
         Ok(e) => e,
-        Err(e) => {
-            warn!("could not read {}: {}", hooks_dir.display(), e);
+        Err(_) => {
+            warn!(
+                "no deploy hooks found in {} — web server won't be reloaded",
+                hooks_dir.display()
+            );
             return;
         }
     };
 
+    let lineage = base_dir.join(domain);
+    let mut ran = 0;
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_file() {
@@ -85,6 +85,14 @@ pub(crate) fn run_deploy_hooks(hooks_dir: &Path, base_dir: &Path, domain: &str) 
         if let Err(e) = result {
             warn!("hook {} failed: {}", path.display(), e);
         }
+        ran += 1;
+    }
+
+    if ran == 0 {
+        warn!(
+            "no deploy hooks found in {} — web server won't be reloaded",
+            hooks_dir.display()
+        );
     }
 }
 

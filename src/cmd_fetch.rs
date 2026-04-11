@@ -3,7 +3,8 @@ use std::path::Path;
 use anyhow::Result;
 use log::{info, warn};
 
-use crate::config::{DEFAULT_PORT, LETSENCRYPT_LIVE};
+use crate::cmd_renew::run_deploy_hooks;
+use crate::config::{DEFAULT_PORT, DEPLOY_HOOKS, LETSENCRYPT_LIVE};
 use crate::fetcher::{
     fetch_cert_chain, verify_cert_matches_domain, verify_cert_matches_private_key,
 };
@@ -20,6 +21,8 @@ pub fn cmd_fetch(host: &str) -> Result<()> {
     verify_cert_matches_private_key(&certs[0], &base.join(host).join("privkey.pem"))?;
 
     write_cert_files(base, host, &certs)?;
+
+    run_deploy_hooks(Path::new(DEPLOY_HOOKS), base, host);
 
     match install_timer() {
         Ok(()) => info!("systemd renewal timer installed"),
