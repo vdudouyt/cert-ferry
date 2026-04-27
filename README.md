@@ -30,7 +30,8 @@ certbot handles automatic renewal. The private key stays on this server and is d
 It's important not to miss ``--reuse-key``, otherwise, automatic updates may be broken on next key rewrite.
 
 ### 2. Slave servers: one-shot deploy & setup updates with certferry
-Copy /etc/letsencrypt/live/yourdomain.com/ directory from your main server by a secure channel. 
+Copy /etc/letsencrypt/live/yourdomain.com/ directory from your main server by a secure channel.
+Don't forget to add yourdomain.com to your /etc/hosts file if you're using Cloudflare or anything similar that could prevent you from fetching an original Let's Encrypt certificate.
 ```sh
 certferry yourdomain.com
 ```
